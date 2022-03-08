@@ -1,0 +1,98 @@
+#!/bin/bash
+
+KAFKA_DEVELOPER_KEYS__DOWNLOAD_URL="https://downloads.apache.org/kafka/KEYS"
+ARCHIVE_DOWNLOAD_URL="https://dlcdn.apache.org/kafka/3.1.0/kafka_2.13-3.1.0.tgz"
+ARCHIVE_FILE="kafka_2.13-3.1.0.tgz"
+ASC_DOWNLOAD_URL="https://downloads.apache.org/kafka/3.1.0/kafka_2.13-3.1.0.tgz.asc"
+ASC_FILE="kafka_2.13-3.1.0.tgz.asc"
+# EXTRACT_DIR="$(tar --exclude='*/*' -tf $ARCHIVE_FILE)" 
+EXTRACT_DIR="kafka_2.13-3.1.0"
+KEYS_FILE=KEYS
+KEYS_DOWNLOAD_URL="${KAFKA_DEVELOPER_KEYS__DOWNLOAD_URL}"
+
+download_file() {
+
+	local DOWNLOAD_FILE=$1
+	local DOWNLOAD_URL=$2
+
+	if [[ -f ${DOWNLOAD_FILE} ]]; then
+		echo "Found ${DOWNLOAD_FILE} file..."
+	else
+		echo "Downloading ${DOWNLOAD_FILE} file..."
+		echo ""
+		wget -O ${DOWNLOAD_FILE} ${DOWNLOAD_URL}
+		if [[ $? == 0 ]]; then
+			echo ""
+			echo "Downloaded ${DOWNLOAD_FILE} file successfully."
+		else
+			echo ""
+			echo "Failed to downloaded ${DOWNLOAD_FILE} file."
+			echo "Aborting Docker image build."
+			echo ""
+			exit 1
+		fi
+		echo ""
+	fi 
+}
+
+gpg_import_keys() {
+	echo ""
+	echo "Downloading KEYS..."
+	echo ""
+	download_file "${KEYS_FILE}"  "${KEYS_DOWNLOAD_URL}"
+	gpg --import < "${KEYS_FILE}" > /dev/null
+	if [[ $? == 0 ]]; then
+		echo ""
+		echo "Imported KEYS"
+	else
+		echo ""
+		echo "Failed to import KEYS"
+		echo "Aborting Docker image build."
+		echo ""
+		exit 1
+	fi
+	echo "" 
+}
+
+gpg_verify() {
+	local ASC_FILE=$1
+	local ARCHIVE_FILE=$2
+	gpg --verify ${ASC_FILE} ${ARCHIVE_FILE} > /dev/null 2>&1
+}
+
+verify_integrity() { 
+
+	local ASC_FILE=$1
+	local FILE=$2 
+	echo "Checking integrity of ${FILE} file..."
+	gpg_verify $ASC_FILE $FILE
+	if [[ $? == 0 ]]; then
+		echo "${FILE} file integrity check succeeded."
+		echo "Building Docker image..."
+	else
+		echo "KEYS not found"
+		gpg_import_keys
+		gpg_verify $ASC_FILE $_FILE
+		if [[ $? == 0 ]]; then
+			echo "Kafka archive file integrity check succeeded."
+			echo "Building Docker image..." 
+		else
+			echo "Kafka archive file integrity check failed."
+			echo "Aborting Docker image build."
+			echo ""
+		exit 1
+		fi
+	fi 
+}
+
+download_file $ARCHIVE_FILE $ARCHIVE_DOWNLOAD_URL
+download_file $ASC_FILE $ASC_DOWNLOAD_URL
+verify_integrity $ASC_FILE $ARCHIVE_FILE
+
+docker build \
+	-t aldrinebaroi/kafka-client \
+	--build-arg ARCHIVE_FILE=${ARCHIVE_FILE} \
+	--build-arg EXTRACT_DIR=${EXTRACT_DIR} \
+	.
+
+#::END::
